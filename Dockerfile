@@ -11,11 +11,15 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY common/Cargo.toml common/Cargo.toml
 COPY relay/Cargo.toml  relay/Cargo.toml
+COPY src-tauri/Cargo.toml src-tauri/Cargo.toml
 
 # Stub out source files so cargo can resolve the workspace
-RUN mkdir -p common/src relay/src && \
+RUN mkdir -p common/src relay/src src-tauri/src && \
     echo "// stub" > common/src/lib.rs && \
-    echo "fn main() {}" > relay/src/main.rs
+    echo "fn main() {}" > relay/src/main.rs && \
+    echo "fn main() {}" > src-tauri/src/main.rs && \
+    echo "// stub" > src-tauri/src/lib.rs && \
+    echo "fn main() -> Result<(), Box<dyn std::error::Error>> { tauri::Builder::default().run(tauri::generate_context!()).expect(\"error\"); Ok(()) }" > src-tauri/src/lib.rs || true
 
 # Pre-build dependencies (cached unless Cargo.toml/lock change)
 RUN cargo build --release --package cipherline-relay 2>/dev/null || true

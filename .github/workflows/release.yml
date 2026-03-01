@@ -108,7 +108,32 @@ jobs:
 
       - name: Install OpenSSL (Windows)
         if: runner.os == 'Windows'
-        run: choco install openssl --no-progress -y
+        shell: powershell
+        run: |
+          choco install openssl --no-progress -y
+          # Find where choco installed OpenSSL
+          $sslDir = if (Test-Path "C:\Program Files\OpenSSL-Win64") { "C:\Program Files\OpenSSL-Win64" }
+                    elseif (Test-Path "C:\Program Files\OpenSSL") { "C:\Program Files\OpenSSL" }
+                    else { throw "OpenSSL not found" }
+          echo "OPENSSL_DIR=$sslDir" >> $env:GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$sslDir\include" >> $env:GITHUB_ENV
+          # Find the lib directory (varies by installer)
+          if (Test-Path "$sslDir\lib\VC\x64\MD") {
+            echo "OPENSSL_LIB_DIR=$sslDir\lib\VC\x64\MD" >> $env:GITHUB_ENV
+          } elseif (Test-Path "$sslDir\lib") {
+            echo "OPENSSL_LIB_DIR=$sslDir\lib" >> $env:GITHUB_ENV
+          }
+          echo "OpenSSL found at: $sslDir"
+
+      - name: Install OpenSSL (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          OPENSSL_PREFIX=$(brew --prefix openssl@3)
+          echo "OPENSSL_DIR=$OPENSSL_PREFIX" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=$OPENSSL_PREFIX/lib" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=$OPENSSL_PREFIX/include" >> "$GITHUB_ENV"
+          echo "OpenSSL found at: $OPENSSL_PREFIX"
 
       # --- Build frontend ---
       - name: Install npm deps
@@ -124,9 +149,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          OPENSSL_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64' || '' }}
-          OPENSSL_LIB_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD' || '' }}
-          OPENSSL_INCLUDE_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64\include' || '' }}
 
       # --- Upload artifacts ---
       - name: Upload Windows artifacts
@@ -271,12 +293,45 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
+      - name: Build OpenSSL for Android targets
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make perl
+          git clone --depth 1 --branch openssl-3.3.0 https://github.com/openssl/openssl.git /tmp/openssl-src
+
+          NDK="${ANDROID_NDK_HOME:-/usr/local/lib/android/sdk/ndk/$(ls /usr/local/lib/android/sdk/ndk/ | head -1)}"
+          export ANDROID_NDK_ROOT="$NDK"
+          export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+
+          build_openssl() {
+            local ARCH=$1 TARGET=$2 API=$3 PREFIX=$4
+            cd /tmp/openssl-src
+            make clean 2>/dev/null || true
+            ./Configure "$TARGET" -D__ANDROID_API__=$API --prefix="$PREFIX" no-shared no-tests
+            make -j$(nproc)
+            make install_sw
+          }
+
+          build_openssl aarch64 android-arm64 24 /tmp/openssl-android-arm64
+          build_openssl armv7  android-arm   24 /tmp/openssl-android-arm
+          build_openssl x86_64 android-x86_64 24 /tmp/openssl-android-x86_64
+          build_openssl i686   android-x86    24 /tmp/openssl-android-x86
+
       - name: Build Android APK
         run: cargo tauri android build --apk
         env:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # OpenSSL for each Android target
+          OPENSSL_DIR: /tmp/openssl-android-arm64
+          OPENSSL_LIB_DIR: /tmp/openssl-android-arm64/lib
+          OPENSSL_INCLUDE_DIR: /tmp/openssl-android-arm64/include
+          OPENSSL_STATIC: "1"
+          AARCH64_LINUX_ANDROID_OPENSSL_DIR: /tmp/openssl-android-arm64
+          ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR: /tmp/openssl-android-arm
+          X86_64_LINUX_ANDROID_OPENSSL_DIR: /tmp/openssl-android-x86_64
+          I686_LINUX_ANDROID_OPENSSL_DIR: /tmp/openssl-android-x86
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4

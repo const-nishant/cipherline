@@ -88,14 +88,31 @@ jobs:
 
       - name: Install OpenSSL (Windows)
         if: runner.os == 'Windows'
-        run: choco install openssl --no-progress -y
+        shell: powershell
+        run: |
+          choco install openssl --no-progress -y
+          $sslDir = if (Test-Path "C:\Program Files\OpenSSL-Win64") { "C:\Program Files\OpenSSL-Win64" }
+                    elseif (Test-Path "C:\Program Files\OpenSSL") { "C:\Program Files\OpenSSL" }
+                    else { throw "OpenSSL not found" }
+          echo "OPENSSL_DIR=$sslDir" >> $env:GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$sslDir\include" >> $env:GITHUB_ENV
+          if (Test-Path "$sslDir\lib\VC\x64\MD") {
+            echo "OPENSSL_LIB_DIR=$sslDir\lib\VC\x64\MD" >> $env:GITHUB_ENV
+          } elseif (Test-Path "$sslDir\lib") {
+            echo "OPENSSL_LIB_DIR=$sslDir\lib" >> $env:GITHUB_ENV
+          }
+
+      - name: Install OpenSSL (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          OPENSSL_PREFIX=$(brew --prefix openssl@3)
+          echo "OPENSSL_DIR=$OPENSSL_PREFIX" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=$OPENSSL_PREFIX/lib" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=$OPENSSL_PREFIX/include" >> "$GITHUB_ENV"
 
       - name: Run client tests
         run: cargo test -p cipherline-client --all-targets
-        env:
-          OPENSSL_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64' || '' }}
-          OPENSSL_LIB_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD' || '' }}
-          OPENSSL_INCLUDE_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64\include' || '' }}
 
   # ---------------------------------------------------------------------------
   # Proptest fuzzing (extended)
