@@ -1,0 +1,130 @@
+name: CipherLine CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lint
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (clippy + fmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (common)
+        run: cargo clippy -p cipherline-common -- -D warnings
+
+      - name: Clippy (relay)
+        run: cargo clippy -p cipherline-relay -- -D warnings
+
+  # ---------------------------------------------------------------------------
+  # Test — common + relay (no Tauri deps)
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Run common tests
+        run: cargo test -p cipherline-common --all-targets
+
+      - name: Run relay tests
+        run: cargo test -p cipherline-relay --all-targets
+
+  # ---------------------------------------------------------------------------
+  # Client tests (store, commands)
+  # ---------------------------------------------------------------------------
+  test-client:
+    name: Test client (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev
+
+      - name: Install OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        run: choco install openssl --no-progress -y
+
+      - name: Run client tests
+        run: cargo test -p cipherline-client --all-targets
+        env:
+          OPENSSL_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64' || '' }}
+          OPENSSL_LIB_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD' || '' }}
+          OPENSSL_INCLUDE_DIR: ${{ runner.os == 'Windows' && 'C:\Program Files\OpenSSL-Win64\include' || '' }}
+
+  # ---------------------------------------------------------------------------
+  # Proptest fuzzing (extended)
+  # ---------------------------------------------------------------------------
+  fuzz:
+    name: Proptest fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Run proptest fuzz suite
+        run: cargo test -p cipherline-common --test proptest_fuzz -- --nocapture
+        env:
+          PROPTEST_CASES: "500"
+
+  # ---------------------------------------------------------------------------
+  # Security audit (cargo-audit)
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run audit
+        run: cargo audit

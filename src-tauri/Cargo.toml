@@ -1,0 +1,58 @@
+[package]
+name = "cipherline-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CipherLine Tauri desktop client"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+cipherline-common = { path = "../common" }
+tauri = { version = "2", features = [] }
+tauri-plugin-os = "2"
+tauri-plugin-notification = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
+argon2 = "0.5"
+zeroize = { workspace = true }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+
+# Platform-conditional keyring backends
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[lib]
+name = "cipherline_client"
+crate-type = ["lib", "cdylib", "staticlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "cipherline-client"
+path = "src/main.rs"

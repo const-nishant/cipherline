@@ -1,0 +1,27 @@
+# Build artifacts
+/target/
+/target-test/
+/target-android/
+ui/dist/
+ui/node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — NEVER commit these
+*.keystore
+*.jks
+*.key
+*.pem
+
+# Gradle
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/build/

@@ -1,0 +1,30 @@
+[package]
+name = "cipherline-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CipherLine blind relay server"
+
+[dependencies]
+cipherline-common = { path = "../common" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors"] }
+dashmap = "6"
+clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+
+[dev-dependencies]
+tokio-tungstenite = "0.26"

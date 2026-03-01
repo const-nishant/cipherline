@@ -1,0 +1,204 @@
+name: CipherLine Auto Version
+
+# Triggered on merge to main — parses Conventional Commits since last tag
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - ".github/workflows/ci.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  auto-version:
+    name: Detect & bump version from commits
+    runs-on: ubuntu-latest
+    # Skip version-bump commits to avoid infinite loop
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get last version tag
+        id: last_tag
+        run: |
+          TAG=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "")
+          if [ -z "$TAG" ]; then
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "No previous version tag found — will use v0.0.0 as base"
+          else
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "Last tag: $TAG"
+          fi
+
+      - name: Parse conventional commits
+        id: commits
+        run: |
+          LAST_TAG="${{ steps.last_tag.outputs.tag }}"
+
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          COMMITS=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null || echo "")
+          echo "Commits since $LAST_TAG:"
+          echo "$COMMITS"
+
+          BUMP="none"
+
+          # Check for BREAKING CHANGE
+          if echo "$COMMITS" | grep -qiE "^.*!:|BREAKING[ -]CHANGE"; then
+            BUMP="major"
+          # Check for feat:
+          elif echo "$COMMITS" | grep -qiE "^feat(\(.*\))?:"; then
+            BUMP="minor"
+          # Check for fix:, perf:, refactor:
+          elif echo "$COMMITS" | grep -qiE "^(fix|perf|refactor)(\(.*\))?:"; then
+            BUMP="patch"
+          fi
+
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "Detected bump type: $BUMP"
+
+      - name: Skip if no version-worthy changes
+        if: steps.commits.outputs.bump == 'none'
+        run: echo "No version-worthy conventional commits found. Skipping."
+
+      - name: Get current version
+        if: steps.commits.outputs.bump != 'none'
+        id: current
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current version: $VERSION"
+
+      - name: Calculate new version
+        if: steps.commits.outputs.bump != 'none'
+        id: new_ver
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          BUMP="${{ steps.commits.outputs.bump }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT%%-*}"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEW}" >> "$GITHUB_OUTPUT"
+          echo "Version: $CURRENT → $NEW ($BUMP)"
+
+      - name: Update all version files
+        if: steps.commits.outputs.bump != 'none'
+        run: |
+          NEW="${{ steps.new_ver.outputs.new_version }}"
+
+          # Workspace Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"${NEW}\"/" Cargo.toml
+
+          # tauri.conf.json
+          sed -i "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" src-tauri/tauri.conf.json
+
+          # package.json
+          sed -i "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" ui/package.json
+
+          echo "Updated all version files to $NEW"
+
+      - name: Commit, tag & push
+        if: steps.commits.outputs.bump != 'none'
+        run: |
+          NEW="${{ steps.new_ver.outputs.new_version }}"
+          TAG="${{ steps.new_ver.outputs.tag }}"
+
+          git add Cargo.toml src-tauri/tauri.conf.json ui/package.json
+          git commit -m "chore: bump version to ${NEW}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push
+          git push origin "$TAG"
+
+          echo "Committed and tagged: $TAG"
+
+      - name: Generate changelog snippet
+        if: steps.commits.outputs.bump != 'none'
+        id: changelog
+        run: |
+          LAST_TAG="${{ steps.last_tag.outputs.tag }}"
+          NEW_TAG="${{ steps.new_ver.outputs.tag }}"
+
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${LAST_TAG}..HEAD~1"
+          fi
+
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            echo "## $NEW_TAG"
+            echo ""
+
+            # Features
+            FEATS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^feat" -i 2>/dev/null || true)
+            if [ -n "$FEATS" ]; then
+              echo "### Features"
+              echo "$FEATS"
+              echo ""
+            fi
+
+            # Fixes
+            FIXES=$(git log "$RANGE" --pretty=format:"- %s" --grep="^fix" -i 2>/dev/null || true)
+            if [ -n "$FIXES" ]; then
+              echo "### Bug Fixes"
+              echo "$FIXES"
+              echo ""
+            fi
+
+            # Performance
+            PERFS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^perf" -i 2>/dev/null || true)
+            if [ -n "$PERFS" ]; then
+              echo "### Performance"
+              echo "$PERFS"
+              echo ""
+            fi
+
+            # Breaking changes
+            BREAKS=$(git log "$RANGE" --pretty=format:"- %s" --grep="BREAKING" -i 2>/dev/null || true)
+            if [ -n "$BREAKS" ]; then
+              echo "### ⚠ Breaking Changes"
+              echo "$BREAKS"
+              echo ""
+            fi
+
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        if: steps.commits.outputs.bump != 'none'
+        run: |
+          echo "## Auto Version Bump" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Previous | ${{ steps.current.outputs.version }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| New | ${{ steps.new_ver.outputs.new_version }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | ${{ steps.new_ver.outputs.tag }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Bump | ${{ steps.commits.outputs.bump }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.changelog.outputs.changelog }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The **Release** workflow will now build and publish artifacts." >> "$GITHUB_STEP_SUMMARY"

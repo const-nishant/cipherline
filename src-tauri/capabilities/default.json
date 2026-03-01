@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-v2-schema/main/capabilities-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for CipherLine",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "core:window:allow-set-size",
+    "core:window:allow-center",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "notification:allow-register-action-types",
+    "notification:allow-cancel",
+    "notification:allow-get-active",
+    "notification:allow-remove-active"
+  ]
+}

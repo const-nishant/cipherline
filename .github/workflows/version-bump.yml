@@ -1,0 +1,135 @@
+name: CipherLine Version Bump
+
+# Manually triggered with version type selection, or auto on merge to main
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: "Pre-release identifier (leave empty for stable)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  version-bump:
+    name: Bump version & tag
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current version
+        id: current
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate new version
+        id: bump
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          BUMP="${{ inputs.bump }}"
+          PRE="${{ inputs.prerelease }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT%%-*}"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          if [ -n "$PRE" ]; then
+            NEW_VERSION="${NEW_VERSION}-${PRE}"
+          fi
+
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Bumping: $CURRENT → $NEW_VERSION ($BUMP)"
+
+      - name: Update workspace Cargo.toml
+        run: |
+          NEW="${{ steps.bump.outputs.new_version }}"
+          sed -i "s/^version = \".*\"/version = \"${NEW}\"/" Cargo.toml
+          echo "Updated workspace Cargo.toml to $NEW"
+
+      - name: Update tauri.conf.json
+        run: |
+          NEW="${{ steps.bump.outputs.new_version }}"
+          sed -i "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" src-tauri/tauri.conf.json
+          echo "Updated tauri.conf.json to $NEW"
+
+      - name: Update package.json
+        run: |
+          NEW="${{ steps.bump.outputs.new_version }}"
+          cd ui
+          sed -i "s/\"version\": \".*\"/\"version\": \"${NEW}\"/" package.json
+          echo "Updated package.json to $NEW"
+
+      - name: Verify versions are in sync
+        run: |
+          NEW="${{ steps.bump.outputs.new_version }}"
+          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          TAURI_VER=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\([0-9].*\)".*/\1/')
+          NPM_VER=$(grep '"version"' ui/package.json | head -1 | sed 's/.*"\([0-9].*\)".*/\1/')
+
+          echo "Cargo.toml:       $CARGO_VER"
+          echo "tauri.conf.json:  $TAURI_VER"
+          echo "package.json:     $NPM_VER"
+
+          if [ "$CARGO_VER" != "$NEW" ] || [ "$TAURI_VER" != "$NEW" ] || [ "$NPM_VER" != "$NEW" ]; then
+            echo "ERROR: Version mismatch detected!"
+            exit 1
+          fi
+          echo "All versions synced to $NEW ✓"
+
+      - name: Commit version bump
+        run: |
+          NEW="${{ steps.bump.outputs.new_version }}"
+          git add Cargo.toml src-tauri/tauri.conf.json ui/package.json
+          git commit -m "chore: bump version to ${NEW}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          TAG="${{ steps.bump.outputs.tag }}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Created tag: $TAG"
+
+      - name: Summary
+        run: |
+          echo "## Version Bump Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Previous | ${{ steps.current.outputs.version }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| New | ${{ steps.bump.outputs.new_version }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | ${{ steps.bump.outputs.tag }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Type | ${{ inputs.bump }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The **Release** workflow will now build and publish artifacts automatically." >> "$GITHUB_STEP_SUMMARY"
