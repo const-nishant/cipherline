@@ -73,10 +73,7 @@ impl RelayState {
         self.online.insert(key, sender);
 
         // Also ensure the device is in the registered set.
-        self.devices
-            .entry(user_id)
-            .or_insert_with(HashSet::new)
-            .insert(device_id);
+        self.devices.entry(user_id).or_default().insert(device_id);
     }
 
     /// Unregister a device as online.
@@ -168,10 +165,7 @@ impl RelayState {
 
     /// Register a device for a user.
     pub fn register_device(&self, user_id: UserId, device_id: DeviceId) {
-        self.devices
-            .entry(user_id)
-            .or_insert_with(HashSet::new)
-            .insert(device_id);
+        self.devices.entry(user_id).or_default().insert(device_id);
     }
 
     /// Revoke a device.

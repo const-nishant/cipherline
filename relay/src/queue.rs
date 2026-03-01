@@ -62,7 +62,7 @@ impl MessageQueue {
         envelope: Envelope,
     ) -> Result<(), QueueError> {
         let key = DeviceQueueKey { user_id, device_id };
-        let mut queue = self.queues.entry(key).or_insert_with(VecDeque::new);
+        let mut queue = self.queues.entry(key).or_default();
 
         if queue.len() >= self.max_per_device {
             warn!("queue full for device {:?}", device_id);

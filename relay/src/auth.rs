@@ -72,6 +72,7 @@ impl AuthManager {
     /// Verify an authentication response.
     ///
     /// Returns the authenticated peer on success.
+    #[allow(clippy::too_many_arguments)]
     pub fn verify_response(
         &mut self,
         challenge: &[u8; 32],
@@ -100,11 +101,7 @@ impl AuthManager {
             .unwrap()
             .as_millis() as u64;
         let tolerance_ms = self.timestamp_tolerance.as_millis() as u64;
-        let diff = if server_time > client_timestamp {
-            server_time - client_timestamp
-        } else {
-            client_timestamp - server_time
-        };
+        let diff = server_time.abs_diff(client_timestamp);
         if diff > tolerance_ms {
             warn!("auth: timestamp out of range (diff={diff}ms, tolerance={tolerance_ms}ms)");
             return Err(AuthError::TimestampOutOfRange);
