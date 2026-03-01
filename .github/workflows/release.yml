@@ -252,9 +252,10 @@ jobs:
         run: |
           BIN="cipherline-relay"
           TARGET="${{ matrix.config.target }}"
-          if [[ "$TARGET" == *"windows"* ]]; then BIN="${BIN}.exe"; fi
+          EXT=""
+          if [[ "$TARGET" == *"windows"* ]]; then EXT=".exe"; fi
           mkdir -p dist
-          cp "target/${TARGET}/release/${BIN}" "dist/${BIN}"
+          cp "target/${TARGET}/release/${BIN}${EXT}" "dist/${BIN}-${TARGET}${EXT}"
 
       - name: Upload relay artifact
         uses: actions/upload-artifact@v4
